@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>⚔️ Gem Battle</title>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700;900&family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ══ MODE SELECT ════════════════════════════════════════ -->
+<div id="mode-select" class="mode-select-screen">
+  <div class="mode-select-inner">
+    <div class="mode-title">⚔️ GEM BATTLE</div>
+    <div class="mode-sub">Выбери режим игры</div>
+    <div class="mode-cards">
+      <div class="mode-card" onclick="game.startVsAI()">
+        <div class="mode-card-icon">🤖</div>
+        <div class="mode-card-name">vs AI</div>
+        <div class="mode-card-desc">Сражайся против умного бота</div>
+      </div>
+      <div class="mode-card mode-online" onclick="game.findOnlineOpponent()">
+        <div class="mode-card-icon">🌐</div>
+        <div class="mode-card-name">Онлайн</div>
+        <div class="mode-card-desc">Играй с другом по сети</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ MATCHMAKING OVERLAY ════════════════════════════════ -->
+<div id="matchmaking-overlay" class="mm-overlay" style="display:none">
+  <div class="mm-box">
+    <div class="mm-title">🌐 Онлайн игра</div>
+    <p class="mm-hint">P2P через PeerJS — работает между разными компьютерами!</p>
+
+    <div class="mm-radio-row">
+      <label class="mm-radio-label">
+        <input type="radio" name="mm-action" value="create" checked
+               onchange="document.getElementById('mm-join-input').style.display='none'"> 🏠 Создать комнату
+      </label>
+      <label class="mm-radio-label">
+        <input type="radio" name="mm-action" value="join"
+               onchange="document.getElementById('mm-join-input').style.display='flex'"> 🚪 Войти по коду
+      </label>
+    </div>
+
+    <div id="mm-join-input" style="display:none; flex-direction:column; gap:8px; margin-bottom:14px;">
+      <input id="mm-code-input" type="text" placeholder="XXXXXX" maxlength="6"
+             class="mm-code-field" style="text-transform:uppercase;letter-spacing:.25em" />
+    </div>
+
+    <button class="mm-go-btn" onclick="
+      const action = document.querySelector('input[name=mm-action]:checked').value;
+      if(action==='create') game._startAsHost();
+      else game._startAsGuest(document.getElementById('mm-code-input').value.trim().toUpperCase());
+    ">Подключиться →</button>
+
+    <div id="mm-code-block" class="mm-code-block" style="display:none">
+      <div class="mm-code-label">Код комнаты — отправь другу</div>
+      <div class="mm-code-row">
+        <span id="mm-room-code" class="mm-room-code">——</span>
+        <button class="mm-copy-btn" onclick="
+          navigator.clipboard.writeText(document.getElementById('mm-room-code').textContent);
+          this.textContent='✅ Скопировано';
+          setTimeout(()=>this.textContent='📋 Копировать',2000);
+        ">📋 Копировать</button>
+      </div>
+    </div>
+
+    <div id="mm-status" class="mm-status"></div>
+
+    <button class="mm-cancel-btn" onclick="
+      if(game.mp){game.mp.close();game.mp=null;}
+      document.getElementById('matchmaking-overlay').style.display='none';
+      game._showModeSelect();
+    ">✕ Отмена</button>
+  </div>
+</div>
+
+<!-- ══ CHARACTER SELECT ════════════════════════════════════ -->
+<div id="char-select" style="display:none">
+  <div class="cs-top-bar">
+    <button class="cs-back-btn" onclick="
+      if(game.mp){game.mp.close();game.mp=null;}
+      game._showModeSelect();
+    ">← Назад</button>
+    <span id="cs-mode-badge" class="cs-mode-badge">🤖 vs AI</span>
+  </div>
+  <div class="cs-title">⚔️ GEM BATTLE</div>
+  <div class="cs-sub">Выбери своего героя — кликни по карточке</div>
+  <div class="cs-cards" id="cs-cards"></div>
+</div>
+
+<!-- ══ GAME ARENA ════════════════════════════════════════ -->
+<div id="app" style="display:none">
+  <header class="game-header">
+    <h1>⚔️ Gem <span>Battle</span></h1>
+    <div class="turn-line" id="turn-line">Ход 1</div>
+  </header>
+
+  <div class="battle-arena">
+
+    <!-- PLAYER PANEL -->
+    <div id="player-panel" class="char-panel player-side">
+      <div class="portrait-area">
+        <div class="char-portrait"></div>
+        <div class="char-name">Герой</div>
+        <div class="char-class-label"></div>
+      </div>
+      <div id="player-stun"       style="display:none" class="stun-badge">💤 Оглушён</div>
+      <div id="player-guard"      style="display:none" class="guard-badge">🛡️ Оборона: <span>0</span> хода</div>
+      <div id="player-manashield" style="display:none" class="mana-shield-badge">🔮 Щит маны: <span>0</span> хода</div>
+      <div id="player-reflect"    style="display:none" class="reflect-badge">🪞 Отражение: <span>0</span> хода</div>
+      <div id="player-curse"      style="display:none" class="curse-badge">🩻 Проклятье</div>
+      <div id="player-plague"     style="display:none" class="plague-badge">🦠 Чума</div>
+      <div class="bars">
+        <div class="bar-row">
+          <div class="bar-meta">HP <span class="val hp-text">200/200</span></div>
+          <div class="bar-track"><div class="bar-fill hp-fill" style="width:100%"></div></div>
+        </div>
+        <div class="bar-row">
+          <div class="bar-meta">Мана <span class="val mana-text">0/100</span></div>
+          <div class="bar-track"><div class="bar-fill mana-fill" style="width:0%"></div></div>
+        </div>
+      </div>
+      <div class="stats-grid">
+        <span>⚔️ Урон: <b class="stat-dmg">12</b></span>
+        <span>💥 Крит: <b class="stat-crit">0%</b></span>
+        <span>💨 Уклон: <b class="stat-dodge">0%</b></span>
+        <span>💚 Реген: <b class="stat-regen">0</b></span>
+      </div>
+      <div class="resources">
+        <span class="res-armor">🛡️ <span class="armor-val">0</span></span>
+      </div>
+      <div class="skills-block">
+        <div class="skills-title">Навыки</div>
+        <div class="passives-row" id="player-passives"></div>
+        <div class="skill-btns"   id="player-skills"></div>
+      </div>
+    </div>
+
+    <!-- CENTER -->
+    <div class="center-area">
+      <div id="turn-pill" class="turn-pill your-turn">🎮 Ваш ход!</div>
+      <div id="battle-log" class="battle-log"></div>
+      <div id="gem-board" class="gem-board"></div>
+      <div class="gem-legend">
+        <div class="legend-item"><div class="legend-gem gem-sword"><img src="assets/gems/gem-attack.png" alt="⚔️"></div> Урон</div>
+        <div class="legend-item"><div class="legend-gem gem-potion"><img src="assets/gems/gem-health.png" alt="🧪"></div> Лечение</div>
+        <div class="legend-item"><div class="legend-gem gem-crystal"><img src="assets/gems/gem-mana.png" alt="💎"></div> Мана</div>
+        <div class="legend-item"><div class="legend-gem gem-shield"><img src="assets/gems/gem-armor.png" alt="🛡️"></div> Броня</div>
+      </div>
+    </div>
+
+    <!-- AI / OPPONENT PANEL -->
+    <div id="ai-panel" class="char-panel ai-side">
+      <div class="portrait-area">
+        <div class="char-portrait"></div>
+        <div class="char-name">Враг</div>
+        <div class="char-class-label"></div>
+      </div>
+      <div id="ai-stun"       style="display:none" class="stun-badge">💤 Оглушён</div>
+      <div id="ai-guard"      style="display:none" class="guard-badge">🛡️ Оборона: <span>0</span> хода</div>
+      <div id="ai-manashield" style="display:none" class="mana-shield-badge">🔮 Щит маны: <span>0</span> хода</div>
+      <div id="ai-reflect"    style="display:none" class="reflect-badge">🪞 Отражение: <span>0</span> хода</div>
+      <div id="ai-curse"      style="display:none" class="curse-badge">🩻 Проклятье</div>
+      <div id="ai-plague"     style="display:none" class="plague-badge">🦠 Чума</div>
+      <div class="bars">
+        <div class="bar-row">
+          <div class="bar-meta">HP <span class="val hp-text">200/200</span></div>
+          <div class="bar-track"><div class="bar-fill hp-fill" style="width:100%"></div></div>
+        </div>
+        <div class="bar-row">
+          <div class="bar-meta">Мана <span class="val mana-text">0/100</span></div>
+          <div class="bar-track"><div class="bar-fill mana-fill" style="width:0%"></div></div>
+        </div>
+      </div>
+      <div class="stats-grid">
+        <span>⚔️ Урон: <b class="stat-dmg">12</b></span>
+        <span>💥 Крит: <b class="stat-crit">0%</b></span>
+        <span>💨 Уклон: <b class="stat-dodge">0%</b></span>
+        <span>💚 Реген: <b class="stat-regen">0</b></span>
+      </div>
+      <div class="resources">
+        <span class="res-armor">🛡️ <span class="armor-val">0</span></span>
+      </div>
+      <div class="skills-block">
+        <div class="skills-title">Навыки</div>
+        <div class="passives-row" id="ai-passives"></div>
+        <div class="skill-btns"   id="ai-skills"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ══ GAMEOVER MODAL ════════════════════════════════════════ -->
+<div id="gameover-modal" class="modal-overlay" style="display:none">
+  <div class="modal-box" style="max-width:600px;max-height:80vh;display:flex;flex-direction:column">
+    <div id="go-icon"  class="gameover-icon"></div>
+    <div id="go-title" class="gameover-title"></div>
+    <div id="go-sub"   class="gameover-sub"></div>
+    <div class="gameover-stats">
+      <div class="stat-box"><div class="stat-box-val" id="go-turns">—</div><div class="stat-box-label">ХОДОВ</div></div>
+    </div>
+    <div id="go-log" class="go-log" style="flex:1;overflow-y:auto;background:rgba(0,0,0,0.3);border-radius:8px;padding:12px;margin:12px 0;max-height:200px;font-size:12px;color:#aaa;line-height:1.5"></div>
+    <div style="display:flex;gap:12px;justify-content:center">
+      <button class="btn-primary btn-restart" onclick="game.exitToMenu()">🔄 В меню</button>
+    </div>
+  </div>
+</div>
+
+<script src="game-config.js"></script>
+<script src="multiplayer.js"></script>
+<script src="script.js"></script>
+</body>
+</html>
